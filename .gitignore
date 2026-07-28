@@ -1,0 +1,25 @@
+# Local scratch / experimental work — not part of the final deliverable
+test.pbix
+rough.pbix
+colors.txt
+demo.pbix
+flow.docx
+
+# Raw source data — only the years actually used (2021-2023) are tracked, so anyone
+# who clones this can refresh the .pbix themselves. Everything else (2011-2020, 2024,
+# non-reporters) is out of scope for this project and just dead weight.
+raw_data/extras/
+
+# Claude / AI-agent working files
+CLAUDE.md
+.claude/
+
+# Power BI & Office lock/temp files
+~$*
+*.tmp
+~$*.pbix
+*.pbix.bak
+
+# OS junk
+.DS_Store
+Thumbs.db
