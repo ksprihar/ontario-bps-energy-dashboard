@@ -42,6 +42,8 @@ The full build log — every Power Query step, every DAX formula, every dead end
 - **Years:** 2021–2023 only. The source also has 2011–2020 under a materially different, less detailed legacy schema; reconciling two structurally different eras wasn't worth it for this project's scope, so it's scoped to the three years that share a consistent, richer schema. 2024 is excluded because that year's file drops School Board reporting entirely.
 - **Grain:** one row per property per year in the fact table; a cleaned `Dim_Building` table carries each property's most recent reported attributes (name, sector, location, property type).
 
+This repository's own contents (the model, DAX, documentation) are shared under the MIT License below. The underlying dataset itself remains Ontario government data, published under its own [Open Government Licence – Ontario](https://www.ontario.ca/page/open-government-licence-ontario) — MIT doesn't apply to it, and this project claims no ownership over it.
+
 ## Running this yourself
 
 The three source Excel files (2021–2023, `raw_data/`) are included in this repo, so you can pull the pbix and follow along.
@@ -57,6 +59,10 @@ Power BI Desktop (Power Query / M for transformation, DAX for the semantic layer
 ## Design
 
 Dark theme (`#1D2128`) with a single accent color (`#FF9E20`) used consistently for anything meant to draw the eye — KPI values, the active series in a chart, highlighted table rows. Ontario's trillium logo recolored to match. Kept deliberately restrained rather than colorful, on the theory that a report using ten colors makes none of them mean anything.
+
+## License
+
+This repository is licensed under the [MIT License](LICENSE). See the note in Data & Scope above regarding the underlying government dataset, which is not covered by this license.
 
 ---
 
