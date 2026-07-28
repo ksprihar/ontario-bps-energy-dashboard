@@ -18,18 +18,18 @@ Two Ontario government energy datasets were considered before settling on BPS.
 
 ## Scope
 
-- **Years used: 2021–2023.** The source publishes one file per year from 2011–2024, but 2011–2020 use a different, less detailed legacy schema (~40 columns) than 2021–2023's ENERGY STAR Portfolio Manager–based schema (58 columns). Rather than reconcile two structurally different eras, the project scopes to 2021–2023 only — all three years share an (almost) identical schema, still cover every sector including School Boards, and keep the project timeboxed.
+- **Years used: 2021–2023.** The source publishes one file per year from 2011–2024. 2011–2020 isn't a single stable legacy schema either — the column structure shifts across nearly every individual year in that range, not just once between two eras. That's the actual reason it was dropped rather than reconciled: matching one consistent alternate schema onto 2021–2023's ENERGY STAR Portfolio Manager–based schema (58 columns) would have been a reasonable scope call, but reconciling ten different one-off schemas year over year wasn't. 2021–2023 is the one stretch where all three years share an (almost) identical schema, still cover every sector including School Boards, and keep the project timeboxed.
 - 2024 is excluded entirely, since that file drops School Board data.
 
-## Data Cleaning Log (`Fact_Energy_Staging`)
+## Data Cleaning Log (`fact_energy_staging`)
 
 Each entry below is a transformation applied in Power Query, in the order performed, with the reasoning behind it.
 
 1. **Standardized the 2021 file's schema to match 2022/2023.** 2021 was missing a `Year` column (it only had `Year Ending`, a date) — added it as a literal value. 2021's diesel column was named `Diesel #2 Use (GJ)` while 2022/2023 use `Diesel Use (GJ)` for the same field — renamed to match. 2021 also had an extra column, `Calculated with new source factors (Yes/No)`, with no equivalent in 2022/2023 — removed. This had to happen before appending, since Power Query's Append only merges cleanly when column names match exactly across all three source queries.
 
-2. **Appended 2021, 2022, and 2023 into one fact table, Fact_Energy.** Once the schemas matched, all three years could be combined at a Property ID + Year grain instead of living as three separate tables.
+2. **Appended 2021, 2022, and 2023 into one fact table, fact_energy.** Once the schemas matched, all three years could be combined at a Property ID + Year grain instead of living as three separate tables.
 
-3. **Removed unwanted columns from Fact_Energy**, including:
+3. **Removed unwanted columns from fact_energy**, including:
    - `Number of Buildings` — dropped entirely. Testing showed this field is unreliable: genuinely huge multi-building campuses (e.g., University of Toronto St. George Campus, which spans dozens of buildings) report a value of `1`, the same as an actual single small building. Since it doesn't reliably reflect true building count, it isn't safe to build any measure on.
    - `Custom Property ID 1/2/3 - Name/Value` (three pairs) — dropped. These don't hold genuine custom identifiers; inspection showed they're repurposed to store values (Organization, SubSector, Weekly Average Hours) that already exist in their own dedicated columns elsewhere in the table.
    - `Portfolio Manager Parent Property ID` and `Parent Property Name` — dropped. Parent/child property relationships (e.g., a hospital's multiple wings sharing a parent record) are being ignored entirely for this project, per an earlier explicit scope decision.
@@ -54,7 +54,7 @@ Each entry below is a transformation applied in Power Query, in the order perfor
 
 9. **Filtered out Non-BPS sector rows.** The "Non-BPS" sector only appears in the 2022 and 2023 files (~62 rows/year each, absent from 2021). Since this project's whole scope is regulated Broader Public Sector reporting, keeping a sector that's inconsistently present across years and technically outside the regulation would muddy Sector-level comparisons without adding real analytical value.
 
-10. **Capitalized each word in the City column** (trim already applied in step 7; this adds title-casing, e.g., "OAKVILLE" → "Oakville"). This is the general-purpose city cleanup applied at the Fact_Energy level; several more targeted city fixes happen later on `Dim_Building`, driven by problems only surfaced once the Map page was built — see Star Schema Build Log and Known Data Quality Issues.
+10. **Capitalized each word in the City column** (trim already applied in step 7; this adds title-casing, e.g., "OAKVILLE" → "Oakville"). This is the general-purpose city cleanup applied at the fact_energy level; several more targeted city fixes happen later on `dim_building`, driven by problems only surfaced once the Map page was built — see Star Schema Build Log and Known Data Quality Issues.
 
 11. **Removed 3 City of London properties entirely** (City Hall — Property ID 24322103, Centennial Hall — 24322100, J Allyn Taylor Building — 24322184), 9 rows total across 2021–2023. All three share a District Steam Use figure roughly 900–1,000x too large every year; City Hall alone accounted for ~19–20% of the entire dataset's total GHG emissions each year, which is obviously not real for a single office building. Filtered on Portfolio Manager Property ID rather than Organization/Property Name, since property names like "City Hall" aren't unique across municipalities in this dataset — filtering on the numeric ID guarantees only these exact 3 properties are removed.
 
@@ -104,10 +104,10 @@ Each entry below is a transformation applied in Power Query, in the order perfor
 
 ## Star Schema Build Log
 
-**Query architecture.** The original `Fact_Energy` query (Data Cleaning Log steps 1–15) was renamed to `Fact_Energy_Staging` and its **Enable Load** turned off — it's no longer a table in the model, just a shared building block. This was necessary because `Dim_Building` and `Dim_Year` both need columns (Organization, Sector, City, Postal Code, etc.) that the real fact table shouldn't carry once the star schema is normalized. A new `Fact_Energy` query references `Fact_Energy_Staging` and adds one more step — removing the descriptive columns now owned by `Dim_Building` — leaving just keys (`Portfolio Manager Property ID`, `Year`) and measures (GFA, Adjusted GFA, the energy columns, Site/Source Energy, GHG). Because Power Query references are live pointers to a query's *current* output, not a frozen snapshot, `Dim_Building` and `Dim_Year` reference `Fact_Energy_Staging` directly rather than the trimmed `Fact_Energy` — otherwise they'd break the moment `Fact_Energy` dropped the columns they depend on.
+**Query architecture.** The original `fact_energy` query (Data Cleaning Log steps 1–15) was renamed to `fact_energy_staging` and its **Enable Load** turned off — it's no longer a table in the model, just a shared building block. This was necessary because `dim_building` and `dim_year` both need columns (Organization, Sector, City, Postal Code, etc.) that the real fact table shouldn't carry once the star schema is normalized. A new `fact_energy` query references `fact_energy_staging` and adds one more step — removing the descriptive columns now owned by `dim_building` — leaving just keys (`Portfolio Manager Property ID`, `Year`) and measures (GFA, Adjusted GFA, the energy columns, Site/Source Energy, GHG). Because Power Query references are live pointers to a query's *current* output, not a frozen snapshot, `dim_building` and `dim_year` reference `fact_energy_staging` directly rather than the trimmed `fact_energy` — otherwise they'd break the moment `fact_energy` dropped the columns they depend on.
 
-**`Dim_Building`** (referenced off `Fact_Energy_Staging`):
-1. Reference `Fact_Energy_Staging`, remove all columns except `Portfolio Manager Property ID`, `Year`, `Property Name`, `Organization`, `Sector`, `Subsector`, `Primary Property Type - Self Selected`, `Address`, `City`, `Postal Code`, `Largest Property Use Type`.
+**`dim_building`** (referenced off `fact_energy_staging`):
+1. Reference `fact_energy_staging`, remove all columns except `Portfolio Manager Property ID`, `Year`, `Property Name`, `Organization`, `Sector`, `Subsector`, `Primary Property Type - Self Selected`, `Address`, `City`, `Postal Code`, `Largest Property Use Type`.
 2. Group by `Portfolio Manager Property ID`, taking the max-`Year` row per group, then expand back into columns:
     ```m
     = Table.Group(#"Removed Other Columns", {"Portfolio Manager Property ID"},
@@ -143,7 +143,7 @@ Each entry below is a transformation applied in Power Query, in the order perfor
         if List.Contains({"Scarborough", "North York", "Etobicoke", "East York", "York"}, [Old City])
         then "Toronto" else [Old City])
     ```
-    Safe as an exact match because Fact_Energy already trimmed and title-cased City upstream, so casing is guaranteed to match the hardcoded borough list. `Old City` removed afterward.
+    Safe as an exact match because fact_energy already trimmed and title-cased City upstream, so casing is guaranteed to match the hardcoded borough list. `Old City` removed afterward.
 8. Added `FSA` as the first 3 characters of `Postal Code` (null-guarded):
     ```m
     = Table.AddColumn(#"Removed Columns", "FSA", each
@@ -162,11 +162,11 @@ Each entry below is a transformation applied in Power Query, in the order perfor
 - `"City of "` and `"Town of "` prefixes stripped from City values (replaced with nothing). `"Township of "` was deliberately **left as-is** — there are too many distinct townships to safely tell which references genuinely need the prefix removed versus which would collide with another place name if stripped, so this one was left rather than risk a silent collision.
 - A stray side effect of Power Query's "Capitalize Each Word": any city containing an apostrophe-S (e.g., `King'S`) came out with the S capitalized. Fixed with a targeted replace back to lowercase `'s`.
 
-**`Dim_Year`** (referenced off `Fact_Energy_Staging`):
-1. Reference `Fact_Energy_Staging`, remove all columns except `Year`.
+**`dim_year`** (referenced off `fact_energy_staging`):
+1. Reference `fact_energy_staging`, remove all columns except `Year`.
 2. Remove duplicate rows — leaves the 3 distinct years (2021, 2022, 2023).
 
-Kept as a live reference off `Fact_Energy_Staging` rather than a hardcoded list of 3 numbers. The trade-off: referencing means the entire staging pipeline re-runs on every refresh just to produce 3 rows, since Power Query doesn't cache a shared referenced query's output across separate branches. A hardcoded `#table({"Year"}, {{2021}, {2022}, {2023}})` would avoid that, at the cost of needing a manual edit if the year range ever changes. Deferred rather than changed — revisit only if refresh performance actually becomes a problem.
+Kept as a live reference off `fact_energy_staging` rather than a hardcoded list of 3 numbers. The trade-off: referencing means the entire staging pipeline re-runs on every refresh just to produce 3 rows, since Power Query doesn't cache a shared referenced query's output across separate branches. A hardcoded `#table({"Year"}, {{2021}, {2022}, {2023}})` would avoid that, at the cost of needing a manual edit if the year range ever changes. Deferred rather than changed — revisit only if refresh performance actually becomes a problem.
 
 **`FSA_Lookup` — planned, then retired.** The original plan was a separate lookup table applying a majority-vote-per-FSA city correction: group by FSA, take whichever city name has the most rows within that FSA, and use it as the canonical city for every property in that FSA.
 
@@ -176,22 +176,22 @@ Investigating this surfaced a real, structural problem, not just an edge case. M
 
 **Malformed postal codes found during this investigation (156 rows, 0.36% of the dataset):** `N0G` written as `NOG` (30 rows), `UNK` (24), `N0C` written as `NOC` (21), `N/A` (16), `L75` (15), `VAR` (6), `N0H` written as `NOH` (6), `N0B` written as `NOB` (4), plus a handful of others (`KOM`, `LOG`, `STR`, `6J3`, `-`, `1`, `ONT`, etc. — 22 distinct malformed values total).
 
-**`Fact_Energy`** (final): sourced from `Fact_Energy_Staging`, with all the descriptive columns now owned by `Dim_Building` removed — leaving keys and measures only. `Source Energy Use (GJ)` and `Largest Property Use Type` were dropped in a final cleanup pass once the dashboard build was complete — both turned out unused: Source Energy Use never had a page built against it, and `Largest Property Use Type` is near-identical to `Primary Property Type - Self Selected`, which was the column actually used throughout.
+**`fact_energy`** (final): sourced from `fact_energy_staging`, with all the descriptive columns now owned by `dim_building` removed — leaving keys and measures only. `Source Energy Use (GJ)` and `Largest Property Use Type` were dropped in a final cleanup pass once the dashboard build was complete — both turned out unused: Source Energy Use never had a page built against it, and `Largest Property Use Type` is near-identical to `Primary Property Type - Self Selected`, which was the column actually used throughout.
 
 **Measure Table.** A dedicated table created from a blank query (one column, one dummy row) to hold every DAX measure in the model, rather than scattering measures across the physical tables they reference. The dummy column was deleted directly in the main Power BI window once the first real measure existed on the table.
 
 ## Known Data Quality Issues
 
-- **Portfolio Manager Property ID is not perfectly stable across years — mainly due to a one-time City of Toronto migration.** Checked every (Organization, Property Name) combination across 2021–2023: 1,950 of 17,011 (about 11%) have more than one distinct Property ID somewhere in the range. Of those, 162 are genuine same-year coexistence — multiple distinct sub-properties sharing one generic name (e.g., several different pump stations all named "Pumpstation"). The remaining 1,788 are true one-ID-per-year churn, and 1,751 of those (97.9%) belong to a single organization, City of Toronto, all following the same pattern — a 2021 ID replaced by a different ID that then stays stable across 2022 and 2023. This looks like a one-time, organization-wide Portfolio Manager re-registration, not scattered noise. **Decision:** build Dim_Building on Property ID as planned — the practical effect is that Toronto's ~1,751 affected properties will each appear as 2 distinct rows instead of 1, modestly inflating any "total unique buildings" count.
+- **Portfolio Manager Property ID is not perfectly stable across years — mainly due to a one-time City of Toronto migration.** Checked every (Organization, Property Name) combination across 2021–2023: 1,950 of 17,011 (about 11%) have more than one distinct Property ID somewhere in the range. Of those, 162 are genuine same-year coexistence — multiple distinct sub-properties sharing one generic name (e.g., several different pump stations all named "Pumpstation"). The remaining 1,788 are true one-ID-per-year churn, and 1,751 of those (97.9%) belong to a single organization, City of Toronto, all following the same pattern — a 2021 ID replaced by a different ID that then stays stable across 2022 and 2023. This looks like a one-time, organization-wide Portfolio Manager re-registration, not scattered noise. **Decision: build `dim_building` on Property ID as planned, rather than attempt manual reconciliation.** The (Organization, Property Name) matching above is exact, not fuzzy, and precise enough to detect and quantify the churn pattern — but it isn't a guaranteed unique real-world identifier, which is exactly what the 162 same-year coexistence cases prove: the same organization can legitimately have multiple distinct properties sharing one generic name at the same time. Using that same key to actually merge individual rows — treating a 2021 ID and its apparent 2022 replacement as definitely the same building — would be right for the vast majority of the 1,751 Toronto cases, but there's no independent confirmation for any single one of them, and a wrong merge would silently combine two genuinely different buildings into one. That's a worse failure mode than the alternative: leaving them as distinct rows, which just modestly inflates a single, fully-explained count rather than risking an invisible error.
 - **Adjusted GFA / EUI cleanup resolved** (Data Cleaning Log step 14). A blanket exclusion by property type was considered and rejected — each of the four suspect property types is 78–93% legitimate data; excluding them wholesale would have thrown out far more good data than it fixed.
 - **Decision: keep GFA and EUI in the analysis** rather than rely on Site/Source Energy Use totals alone — this was the original reason BPS was chosen over EWRB, EUI is needed for fair per-building/per-sector efficiency comparison, and the Property Drillthrough gauges compare a property against a GFA-based target.
 - **City cleanup is fully resolved**, via the Postal Code validation chain, the Toronto-borough fold, City of/Town of prefix stripping, the apostrophe-S fix, and the `1`/`-` → `"Unknown"` replacement (all in Star Schema Build Log above) — not via the originally planned `FSA_Lookup` majority-vote table, which was retired once that general approach turned out to be unsafe.
-- Sector/Subsector snowflake was flattened by design: Sector and Subsector live as attribute columns on Dim_Building rather than as separate linked dimension tables, since the hierarchy is small and fixed.
+- Sector/Subsector snowflake was flattened by design: Sector and Subsector live as attribute columns on dim_building rather than as separate linked dimension tables, since the hierarchy is small and fixed.
 - Parent/child property relationships are dropped entirely — out of scope.
 
 ## Model
 
-`Dim_Building[Portfolio Manager Property ID]` → `Fact_Energy[Portfolio Manager Property ID]`, `Dim_Year[Year]` → `Fact_Energy[Year]`. Star schema, single-direction relationships throughout.
+`dim_building[Portfolio Manager Property ID]` → `fact_energy[Portfolio Manager Property ID]`, `dim_year[Year]` → `fact_energy[Year]`. Star schema, single-direction relationships throughout.
 
 **Core measures** (Measure Table):
 ```dax
@@ -223,7 +223,7 @@ An `Exec Parameter` field parameter (GHG Emissions / Site Energy Use) drives:
 - A **Sector → Subsector drill-down bar chart**, with a custom Tooltip Sector page (below).
 - A **Top 10 properties table**, rankable by whichever metric is selected, drillthrough-enabled on click.
 
-A **Median EUI by Property Type** combo chart sits below, static (not tied to `Exec Parameter`), filtered to the Top 25 property types by property count — with a custom Tooltip Type page.
+A **Median EUI by Property Type** bar chart sits below, static (not tied to `Exec Parameter`), filtered to the Top 25 property types by property count — with a custom Tooltip Type page. This started as a line-and-column combo chart (Median EUI as columns, Count of Properties as a line) but was later simplified to a plain bar chart showing Median EUI alone, for a cleaner read. Count of Properties isn't plotted anymore, but it was worth keeping visible somewhere, so it now lives only in the Tooltip Type page alongside the full property type name.
 
 **Two report-wide bugs surfaced and fixed on this page, both worth knowing about:**
 
@@ -240,7 +240,7 @@ A **Median EUI by Property Type** combo chart sits below, static (not tied to `E
 Bubble map (Azure Maps visual), bubble size driven by a `Map Parameter` field parameter with 7 metrics (Site Energy, GHG, Electricity, Gas, Oil, Propane, Wood). Sidebar has the same filter-toggle/Clear Filters pattern as Exec Dashboard; the slicer panel here holds Year, Sector, and Subsector.
 
 **Geocoding.** Bare `City` text geocodes ambiguously against the whole world — Ontario has small towns sharing names with far more prominent places elsewhere. Fixed in stages:
-1. Built a location hierarchy on Dim_Building: Country → Province → City → Postal Code → Address.
+1. Built a location hierarchy on dim_building: Country → Province → City → Postal Code → Address.
 2. That alone wasn't enough — some locations still resolved outside Ontario/Canada. Added a calculated column, `Location = [City] & ", ON, Canada"`, giving the geocoder one unambiguous string instead of relying on it to combine hierarchy levels correctly at query time.
 3. Even with both in place, 3 towns still resolved wrong: `Colchester N Twp`, `Vermillion Bay`, and `Fort Eire` (a misspelling of Fort Erie). Fixed via targeted Replace Values: `Colchester N Twp` → `Colchester North`, `Vermillion` → `Vermilion`, `Eire` → `Erie`. After this, everything resolved inside Ontario.
 
@@ -299,7 +299,7 @@ One nuance surfaced during review: the `Building Parameter` metric slicer on Pro
 
 A permanent, generic sidebar shortcut to Property Explore also exists (separate from the "Explore" button), deliberately *not* wired to the reset bookmark — intentional, so a user who navigates away and wants to return to Property Explore mid-browse gets back to it exactly as they left it, rather than being reset every time.
 
-**Sibling buildings — built, then dropped.** An earlier design (`Dim_Building_Peers`, a disconnected table related to `fact_energy` to show other properties under the same organization) was actually implemented, then dropped once the two-page Explore pattern above proved to be the more useful and more general solution to the same underlying need.
+**Sibling buildings — built, then dropped.** An earlier design (`dim_building_peers`, a disconnected table related to `fact_energy` to show other properties under the same organization) was actually implemented, then dropped once the two-page Explore pattern above proved to be the more useful and more general solution to the same underlying need.
 
 **What-If GHG modeling — dropped.** The original plan was a GHG trend chart with a What-If slider modeling reduced use of "unclean" fuels. Cut because Total GHG Emissions is a single reported figure with no per-fuel breakdown in the data, so modeling "reduce Gas Use by X%" would need external, undocumented emission factors per fuel — and Ontario's electricity grid is unusually clean (nuclear/hydro-heavy), so any naive proportional assumption (a GJ of electricity ≈ a GJ of gas) would be actively misleading. District Steam/Hot Water/Chilled Water are effectively impossible to attribute an honest factor to at all. Replaced with the plain GHG-by-year column chart described above.
 
@@ -325,12 +325,4 @@ A DAX lesson learned building this: `ISINSCOPE` was tried first to detect whethe
 
 The simplest of the three: selected property type name, property count, and Median EUI. Supports the Exec Dashboard's Median EUI chart.
 
-Power BI's native line-and-column combo chart shows *different* tooltip content depending on whether you're hovering the bar or the line marker for the same category — a real, long-documented limitation, not a configuration mistake. A custom Report Page tooltip sidesteps this entirely, since it's bound to the whole visual rather than per-series, giving one unified tooltip regardless of which part of the chart is hovered. This also compensates for the Median EUI chart's on-axis label crowding (25 property types in one chart width) — the full name is always available on hover, even where the axis label itself is truncated.
-
----
-
-`demo.pbix` is a generic Microsoft sample report (Product/Customer retail data) kept purely as an early visual/structural reference — sidebar nav pattern, bookmark show/hide, gauge usage, tooltip page setup — not a draft of this project's actual pages.
-
-## Status
-
-Power Query, the model, and all 7 pages are complete and were reviewed end to end before the final push. Remaining: git push.
+This tooltip page predates the Median EUI chart's simplification to a plain bar chart. While that chart was still a line-and-column combo (Median EUI as columns, Count of Properties as a line), Power BI's native combo-chart tooltip showed *different* content depending on whether you were hovering the bar or the line marker for the same category — a real, long-documented limitation, not a configuration mistake. A custom Report Page tooltip sidestepped this, since it's bound to the whole visual rather than per-series. Once the chart was simplified to a plain bar (Median EUI alone, Count of Properties dropped from the visual entirely), the original bar-vs-line mismatch stopped being relevant — but the custom tooltip stayed, since it's now the only place Count of Properties shows up at all, alongside the full property type name the crowded axis labels (25 property types in one chart width) don't have room for.
