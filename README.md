@@ -4,17 +4,24 @@ A Power BI dashboard analyzing energy use and greenhouse gas emissions across On
 
 **[View the live dashboard →](https://app.powerbi.com/view?r=eyJrIjoiMmQ1NzVhMWYtNjQ3MS00MzYwLTlhZmEtMWYxODEyYWViMTRkIiwidCI6IjNlYzYzMzRlLWM2MzUtNDM4Yy05YTczLThlM2M0N2JkM2RjZSJ9&pageName=473afd5e19814b8d12b7)**
 
-![Exec Dashboard preview](images/exec-dashboard-preview-v2.png)
+![Exec Dashboard preview](images/exec-dashboard-preview.png)
+
+**Highlights:**
+
+- ~18,000 Property IDs (~17,000 real buildings) across three years, on a proper star schema (`fact_energy`, `dim_building`, `dim_year`) built from Ontario's raw regulator Excel exports.
+- A genuine Power BI limitation — bookmarks can't clear a drillthrough filter — solved architecturally by splitting one intended page into two (Property Drillthrough + Property Explore), rather than fighting the platform.
+- A real data-quality problem, measured instead of guessed at: 1,751 of 17,011 (Organization, Property Name) pairs — nearly all City of Toronto — show a pattern consistent with a one-time Portfolio Manager ID reissue. Quantified precisely, but deliberately left unmerged, since a name pair isn't a guaranteed unique building identifier and a wrong merge would silently combine two real buildings into one.
+- Field Parameters drive every report page's metric slicer, including a three-attempt fix for a Power BI Service–only color bug (see below).
 
 ## What this is
 
 This is a companion project to the PL-300 (Power BI Data Analyst Associate) certification. The goal wasn't to chase a novel research finding — it was to take a real, messy, regulator-published dataset and build the kind of end-to-end BI product a working analyst actually ships: a cleaned star schema, a DAX layer that holds up under dynamic filtering, and a report that a non-technical stakeholder could open and immediately understand.
 
-It's the second in a two-part portfolio pair. The first, [Ontario Energy Mix](https://github.com/ksprihar/ontario-energy-mix), is a SQL/Python project focused on analytical depth. This one is about BI-building competence — modeling, Power Query, DAX, and report design — on top of Ontario's public [BPS Energy Use and GHG Emissions](https://data.ontario.ca) dataset, covering 2021–2023 and roughly 18,000 unique reporting properties.
+It's the second in a two-part portfolio pair. The first, [Ontario Energy Mix](https://github.com/ksprihar/ontario-energy-mix), is a SQL/Python project focused on analytical depth. This one is about BI-building competence — modeling, Power Query, DAX, and report design — on top of Ontario's public [BPS Energy Use and GHG Emissions](https://data.ontario.ca/dataset/energy-use-and-greenhouse-gas-emissions-for-the-broader-public-sector) dataset, covering 2021–2023 and roughly 18,000 distinct Property IDs (see Process.md for why that's a slightly higher count than the ~17,000 real-world buildings behind it).
 
 ## What's in the report
 
-Seven pages, all built around one idea: almost everything on the exec-facing pages is driven by a single metric toggle (GHG Emissions vs. Site Energy Use), so the same visuals restate themselves depending on what the viewer cares about, without needing five separate charts to say the same thing five different ways.
+Four report pages in total and three tooltip pages supporting them. All four report pages are built around the idea that not everyone wants to see the same thing, so each makes use of a Field Parameter slicer to let the viewer choose the metric they want to visualize.
 
 - **Exec Dashboard** — four KPI cards, plus a Year trend line, a Sector → Subsector drill-down bar chart, and a Top 10 properties table (drillthrough-enabled) — the last three synced to a shared metric slicer. A Median EUI by Property Type chart finishes the page.
 - **Map** — a bubble map sized by whichever of 7 metrics is selected (GHG, Site Energy, Electricity, Gas, Oil, Propane, Wood), with a Top N filter (10 / 20 / show all) and a spotlight card for the single top-ranked property.
@@ -30,7 +37,7 @@ A note on the Year trend chart: with only three years (2021–2023) in scope, it
 
 **A rank-based Top N filter was quietly wrong for one metric.** The Map page's Top N logic uses `RANKX` with dense ranking. That broke for Wood energy use specifically: only 3 properties report any wood consumption at all, so with dense ranking, everything past those 3 tied at the next rank — meaning "Top 10" and "show all" rendered identically for that one metric. Fixed with an explicit `[Selected Map Metric] <> 0` filter, once the actual cause (not a map bug, a ranking-mechanics edge case) was tracked down.
 
-**Colors that were correct in Desktop reverted to default blue in the Service.** This one took three attempts. First, conditional formatting keyed to a specific measure's identity — broke the instant the field parameter switched to a different metric, since there was no matching rule for it. Second, a hardcoded color column on the parameter table with conditional formatting bound to that column by value — this fixed the line itself, but not the marker or tooltip swatch color, which turned out to be a *separate* format property in Power BI that doesn't inherit from the line's setting. The actual fix: disable force-select on the slicer and deselect all the metrics, so every one renders as its own series at once; hand-color each; then re-enable force-select to collapse back to a single metric. That bakes a permanent, named color entry for every possible metric directly into the visual — nothing left to fall back to a default on.
+**Colors that were correct in Desktop reverted to default blue in the Service.** This one took three attempts. First, switching between the two metrics one at a time and manually setting each one's line color to the same dark shade, expecting Power BI to remember a distinct color per metric — only one of the two actually persisted as a saved override, and the other reverted to default blue the moment that metric wasn't the one currently selected. Second, a hardcoded color column on the parameter table with conditional formatting bound to that column by value — this fixed the line itself, but not the marker or tooltip swatch color, which turned out to be a *separate* format property in Power BI that doesn't inherit from the line's setting. The actual fix: disable force-select on the slicer and deselect all the metrics, so every one renders as its own series at once; hand-color each; then re-enable force-select to collapse back to a single metric. That bakes a permanent, named color entry for every possible metric directly into the visual — nothing left to fall back to a default on.
 
 **A combo chart's tooltip disagreed with itself.** While the Median EUI chart was still a line-and-column combo (Median EUI as columns, Count of Properties as a line), hovering the bar and hovering the line for the same category showed different tooltip content — a real, long-documented Power BI limitation, not a config mistake. Fixed at the time with a custom Report Page tooltip, bound to the whole visual rather than per-series. The chart itself was later simplified to a plain bar (Median EUI only, for a cleaner read), but the custom tooltip stayed — it's now the only place Count of Properties shows up at all, alongside the full property type name the crowded axis labels don't have room for.
 
@@ -38,7 +45,7 @@ The full build log — every Power Query step, every DAX formula, every dead end
 
 ## Data & scope
 
-- **Source:** [Ontario's Broader Public Sector Energy Use and GHG Emissions dataset](https://data.ontario.ca), published annually under O. Reg. 25/23.
+- **Source:** [Ontario's Broader Public Sector Energy Use and GHG Emissions dataset](https://data.ontario.ca/dataset/energy-use-and-greenhouse-gas-emissions-for-the-broader-public-sector), published annually under O. Reg. 25/23.
 - **Years:** 2021–2023 only. 2011–2020 isn't one consistent alternate schema that could just be mapped onto the current one — the column structure changed in nearly every individual year across that stretch. Reconciling a single, stable legacy format against the current schema would have been a reasonable scope call; reconciling ten different one-off schemas year over year wasn't, so the project scopes to 2021–2023, the one stretch that actually shares a consistent, richer schema. 2024 is excluded separately, since that year's file drops School Board reporting entirely.
 - **Grain:** one row per property per year in the fact table; a cleaned `dim_building` table carries each property's most recent reported attributes (name, sector, location, property type).
 

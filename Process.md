@@ -42,7 +42,7 @@ Each entry below is a transformation applied in Power Query, in the order perfor
    - `List of All Property Use Types (GFA) (m²)` — dropped. A property can have multiple use types listed here, but the analysis is scoped to stay focused on each property's single primary use rather than expanding into a full use-type breakdown per property.
    - `Report Submission Date`, `Data Quality Checker Run?`, `Data Quality Checker - Date Run` — dropped. Internal Portfolio Manager audit/administrative metadata with no analytical value for the dashboard.
 
-4. **Replaced "Not Available" with 0 in the individual energy-type columns** (Natural Gas, Propane, the Fuel Oil variants, District Heating/Cooling, etc.). For a specific fuel type, "Not Available" means the property simply doesn't use that fuel — a true zero, not a missing value.
+4. **Replaced "Not Available" with 0 in the individual energy-type columns** (Natural Gas, Propane, the Fuel Oil variants, District Heating/Cooling, etc.). For a specific fuel type, "Not Available" means the property simply doesn't use that fuel — a true zero, not a missing value. **Limitation worth being explicit about:** this collapses "doesn't use this fuel" and "uses it but didn't report it" into the same 0, for any individual fuel column. That distinction isn't recoverable from the source data at the per-fuel level — it's only handled correctly one level up, at Site Energy Use (step 5 below), where a genuinely unreported summary figure is null rather than 0.
 
 5. **Replaced "Not Available" with null in Site Energy Use, Source Energy Use, and GHG Emissions.** Unlike an individual fuel type, "Not Available" here means the property didn't report that summary figure at all — genuinely unknown, not zero. Treating it as null (rather than 0) prevents incompletely-reported rows from artificially dragging down average-based measures.
 
@@ -196,7 +196,7 @@ Investigating this surfaced a real, structural problem, not just an edge case. M
 **Core measures** (Measure Table):
 ```dax
 Total Site Energy Use (GJ) = SUM(fact_energy[Site Energy Use (GJ)])
--- same pattern repeated for Total GHG Emissions (Tons CO2), Total Electricity Use (GJ),
+-- same pattern repeated for Total GHG Emissions (Tons CO2e), Total Electricity Use (GJ),
 -- Total Gas Use (GJ), Total Oil Use (GJ), Total Propane Use (GJ), Total Wood Use (GJ)
 
 Total Unique Properties = DISTINCTCOUNT(fact_energy[Portfolio Manager Property ID])
@@ -206,8 +206,8 @@ MEDIANX(fact_energy, DIVIDE(fact_energy[Site Energy Use (GJ)], fact_energy[Adjus
 -- Median, not average: unusually high EUI outliers in the data would skew a straight average badly.
 
 GHG Share % =
-VAR AllEmissions = CALCULATE([Total GHG Emissions (Tons CO2)], ALL(fact_energy))
-RETURN DIVIDE([Total GHG Emissions (Tons CO2)], AllEmissions, BLANK())
+VAR AllEmissions = CALCULATE([Total GHG Emissions (Tons CO2e)], ALL(fact_energy))
+RETURN DIVIDE([Total GHG Emissions (Tons CO2e)], AllEmissions, BLANK())
 ```
 
 ## Dashboard Design (7 pages)
@@ -228,7 +228,7 @@ A **Median EUI by Property Type** bar chart sits below, static (not tied to `Exe
 **Two report-wide bugs surfaced and fixed on this page, both worth knowing about:**
 
 1. **Field-Parameter-driven line/marker colors reverting to Power BI's default blue on Service publish.** Three attempts:
-   - First: a per-series color override keyed to one specific measure's identity. Broke the instant the field parameter switched metrics — no matching rule existed for the other measure, so it fell back to default blue.
+   - First: switching between the two metrics one at a time via the field parameter slicer and manually setting each one's line color to the same dark shade, expecting Power BI to remember a distinct color per metric. Only one of the two actually persisted as a saved, per-category override — confirmed by inspecting the saved file directly, which showed a single explicit color override scoped to just one specific measure, with nothing saved for the other. The other metric reverted to default blue the moment it wasn't the one currently selected.
    - Second: a hardcoded color column added to the field-parameter table, with the line's color bound via Conditional Formatting → Field value against that column. This fixed the *line* but not the marker/hover-point or the tooltip's color swatch — which turned out to be a genuinely separate Power BI format property (`dataPoint` fill vs. `lineStyles` stroke) that doesn't inherit the line's color at all.
    - **Actual fix:** temporarily disable forced single-select on the metric slicer so every metric renders as its own series simultaneously, manually color each one to the project's black, then re-enable forced single-select. This bakes a permanent, explicitly-named color entry for every possible metric directly into the visual. Nothing is left to fall back to a theme default for, regardless of which single metric ends up selected — no DAX, no parameter-table color column, no dependency on conditional formatting behaving consistently between Desktop and Service. The helper color columns from the second attempt were deleted once this was in place.
 2. **Default (non-custom) tooltips using Power BI's stock light styling instead of the project's dark palette.** Fixed natively via the Format pane's Properties tab — no custom theme JSON required.
@@ -259,6 +259,8 @@ Show Place = IF([Location Rank] <= [Selected Top N], 1, 0)
 
 **A ranking-mechanics bug, found and fixed:** Wood energy use only has non-zero values for 3 properties in the entire dataset. With `Dense` ranking, every property past those 3 ties at the next rank — so no matter whether Top 10, Top 20, or Show All was selected, the map showed *every* location whenever Wood was the active metric, since dense ranking collapsed everything past rank 3 into one tied group under the "Top 20" cutoff. Not a map bug — a ranking-mechanics edge case specific to metrics with a long run of ties. Fixed with an additional visual-level filter: `[Selected Map Metric] <> 0`, which correctly narrows Wood down to just its 3 real locations regardless of the Top N selection.
 
+**Side effect worth naming explicitly:** this filter applies to every metric, not just Wood, so "Show All" now quietly means "show all *non-zero*" rather than literally every location — a location with 0 GHG or 0 Site Energy (if one ever existed) would disappear even under Show All. Intentional: a zero-value bubble is meaningless on a size-encoded map regardless of which metric it's for, so this is the correct behavior everywhere, not just a Wood-specific patch.
+
 A spotlight card block shows the single top-ranked property and its value for the selected metric (Property Name set as Summarized + Category in the drillthrough settings, so this card also supports drillthrough). A custom Tooltip City page provides richer hover context than the default.
 
 ### Property Drillthrough
@@ -278,7 +280,7 @@ RETURN CALCULATE([Median EUI (GJ/m2)], FILTER(ALL(dim_building),
 
 Target Site Energy Use (GJ) = SUM(fact_energy[Adjusted GFA]) * [Target EUI (GJ/m2)]
 
-Target Emissions (Tons CO2) =
+Target Emissions (Tons CO2e) =
 VAR CurrentUseType = SELECTEDVALUE(dim_building[Primary Property Type - Self Selected], BLANK())
 VAR MedianEmissionIntensity = CALCULATE(
     MEDIANX(fact_energy, DIVIDE(fact_energy[Total (Location-Based) GHG Emissions (Metric Tons CO2e)],
