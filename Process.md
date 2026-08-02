@@ -196,7 +196,7 @@ Investigating this surfaced a real, structural problem, not just an edge case. M
 **Core measures** (Measure Table):
 ```dax
 Total Site Energy Use (GJ) = SUM(fact_energy[Site Energy Use (GJ)])
--- same pattern repeated for Total GHG Emissions (Tons CO2e), Total Electricity Use (GJ),
+-- same pattern repeated for Total GHG Emissions (t CO2e), Total Electricity Use (GJ),
 -- Total Gas Use (GJ), Total Oil Use (GJ), Total Propane Use (GJ), Total Wood Use (GJ)
 
 Total Unique Properties = DISTINCTCOUNT(fact_energy[Portfolio Manager Property ID])
@@ -206,8 +206,8 @@ MEDIANX(fact_energy, DIVIDE(fact_energy[Site Energy Use (GJ)], fact_energy[Adjus
 -- Median, not average: unusually high EUI outliers in the data would skew a straight average badly.
 
 GHG Share % =
-VAR AllEmissions = CALCULATE([Total GHG Emissions (Tons CO2e)], ALL(fact_energy))
-RETURN DIVIDE([Total GHG Emissions (Tons CO2e)], AllEmissions, BLANK())
+VAR AllEmissions = CALCULATE([Total GHG Emissions (t CO2e)], ALL(fact_energy))
+RETURN DIVIDE([Total GHG Emissions (t CO2e)], AllEmissions, BLANK())
 ```
 
 ## Dashboard Design (7 pages)
@@ -280,7 +280,7 @@ RETURN CALCULATE([Median EUI (GJ/m2)], FILTER(ALL(dim_building),
 
 Target Site Energy Use (GJ) = SUM(fact_energy[Adjusted GFA]) * [Target EUI (GJ/m2)]
 
-Target Emissions (Tons CO2e) =
+Target Emissions (t CO2e) =
 VAR CurrentUseType = SELECTEDVALUE(dim_building[Primary Property Type - Self Selected], BLANK())
 VAR MedianEmissionIntensity = CALCULATE(
     MEDIANX(fact_energy, DIVIDE(fact_energy[Total (Location-Based) GHG Emissions (Metric Tons CO2e)],
